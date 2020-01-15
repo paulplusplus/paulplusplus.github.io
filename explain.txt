@@ -1,0 +1,93 @@
+Brad covers service workers in this tutorial.
+-SWs cannot directly access the DOM.
+-They have a programmable network proxy.
+-The terminate when not used. 
+-They make use of promises.
+-They require HTTPS unless used on localhost.
+
+In terms of use cases:
+-They cache assets and API calls
+-Push Notifications(Push and Notification API)
+-Background data sync/preload (defer a request to server when offline until you reconnect)
+-Used in progressive web apps (obviously)
+
+Service works have a lifecycle, that looks like:
+-Register 
+-Install (install event)
+-Activate (activate event)
+------------------------------------------------------------
+Lets get going
+------------------------------------------------------------
+
+I started by creating my own little crappy webpage lol.
+It's crap, but I can call it mine I suppose.
+
+We create a sw_cached_pages.js file. - This is our service worker.
+We need to register it - this we ended up doing in main.js.
+
+We check to ensure that the browser (navigator) supports progressive web apps.
+If so, we add an event listener for page load, and then we register our service worker in the navigator.
+This is a Promise, so we add a .then() and .catch() to work the promise.
+
+Next, we head over to our sw_cached_pages.js file (from here on, sw file).
+We recall that there is a lifecycle for service workers - Register, Install, and Activate.
+We add listeners to self(self, as it refers to the sw itself) for installation and activation.
+
+Next, we discuss the topic of actually caching our resources. In this case, we have two options.
+1) is to declare an array, and list all of the assets we wish to store. This is fine for small sites, but can be difficult for large sites.
+2) is to cache the entire response object. This is better suited for larger websites.
+
+For now, we do method #1. In the sw's install handler, we begin using the caches API.
+We wrote:
+e.waitUntil(
+    caches
+      .open(cacheName)
+      .then(cache => {
+        console.log('Service Worker: Caching Files');
+        cache.addAll(cacheAssets);
+      })
+      .then(() => self.skipWaiting())
+  );
+The meaning behind all this is simple - when event fires, we want it to wait until we have done everything listed.
+In this case, we call caches API, using .opn, .then, and .then. We open a cache which corresponds to our cacheName, 'v1'.
+We get a cache object from .then, and we use it to add our assets to the cache.
+ 
+The main problem now, of course, is that if we actually go offline, and try and reload the page, it will actually try and reload the page.
+If your offline, it will fail, for obvious reasons. We need to intercept that fetch event and point it to load from cache.
+We also want to clear old cache - otherwise, we'll have old caches everywhere.
+We'll address this in the activate event.
+
+For clearing caches, we go to the activate event handler, and use another e.waitUntil() to run our code.
+We get our cache keys using caches.keys(), and since it returns a Promise, we return a Promise.all method.
+Here, we use cacheNames.map to map a function to all the values in the cache.
+This function checks to see that if the cache is not the same as the cacheName we are providing(such as v1 is cached, but our new cacheName is v2), we delete it.
+e.waitUntil(
+    caches
+      .keys() //We'll loop through our cache keys
+      .then(cacheNames => {
+        return Promise.all(
+          cacheNames.map(cache => {
+            if (cache !== cacheName) {
+              console.log('Service Worker: Clearing old cache');
+              return caches.delete(cache);
+            }
+          })
+        );
+      })
+  );
+
+Now, lets handle our offline caching problem.
+We add a new eventListener for fetch event.
+We grab ahold of the event with e, and write e.respondWith(), which will respond to the fetch request with something.
+We actually try to fetch the site, like so:
+
+e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+
+In this case, we try to fetch with the request we sent in the event. 
+If it fails, however, we catch it, and use caches.match to try and find a similar resource as the one we are attempting to fetch.
+Imagine that we are fetching the homepage to our website, index.html. If the fetch to the server hosting our page fails, we look into our cache.
+In our cache, we try and find an index.html. Chances are, it'll be there.
+
+Now, we'll consider our second caching strategy.
+In this case, we'll need to cache on a fetch request.
+We'll create a new serviceworker called 'sw_cached_site.js'.
